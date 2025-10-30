@@ -74,11 +74,6 @@ static inline void silu_lut_q15(
     }
 }
 
-// =====================================================================
-// Convenience wrapper bound to model.h symbols (if included):
-//   - Uses `lut_sigmoid` and `LUT_SIGMOID_SIZE`.
-//   - You still pass (alpha, beta, rshift) decided offline.
-// =====================================================================
 #ifdef LUT_SIGMOID_SIZE
 static inline void silu_lut_q15_model(
     const int8_t* __restrict x, size_t N,
