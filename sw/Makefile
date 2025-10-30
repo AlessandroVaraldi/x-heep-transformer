@@ -32,10 +32,10 @@ TARGET   ?= sim
 COMPILER ?= gcc
 
 # Compiler prefix options are 'riscv32-unknown-' (default)
-COMPILER_PREFIX ?= riscv32-unknown-
+COMPILER_PREFIX ?= riscv32-corev-
 
 # Arch options are any RISC-V ISA string supported by the CPU. Default 'rv32imc'
-ARCH     ?= rv32imc
+ARCH     ?= rv32imcf
 
 # Path relative from the location of sw/Makefile from which to fetch source files. The directory of that file is the default value.
 SOURCE 	 ?= $(".")

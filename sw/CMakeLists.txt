@@ -358,7 +358,7 @@ endif()
 if(NOT ${PROJECT} MATCHES "coremark")
   set(COMPILER_LINKER_FLAGS "\
     -march=${CMAKE_SYSTEM_PROCESSOR} \
-    -w -O2 -g  -nostdlib  \
+    -w -O3 -g  -nostdlib  \
     -ffunction-sections \
     -DHOST_BUILD \
     -D${CRT_TYPE} \
