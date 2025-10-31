@@ -190,15 +190,52 @@ static inline void mha_forward_i8_preln(
         y /* y holds y_ln afterwards: [C,T] */
     );
 
-    // 2) QKV = Linear(y_ln) token by token → buf_qkv [3*C, T]
-    //    We'll reuse linear() with per-token gathers to avoid building [T,C] batches.
+    // 2) Q, K, V projections directly into channel-major [C, T] without transpose.
+    int8_t *Q = buf_qkv;                 // [C, T]
+    int8_t *K = buf_qkv + (size_t)C*T;   // [C, T]
+    int8_t *V = buf_qkv + (size_t)2*C*T; // [C, T]
+
+    const int8_t  *fc0_W_Q = fc0_W;                // rows [0 .. C-1]
+    const int8_t  *fc0_W_K = fc0_W + (size_t)C * C;      // rows [C .. 2C-1]
+    const int8_t  *fc0_W_V = fc0_W + (size_t)2 * C * C;  // rows [2C .. 3C-1]
+
+    const int32_t *fc0_b_Q = fc0_b ? (fc0_b + 0*C)      : NULL;
+    const int32_t *fc0_b_K = fc0_b ? (fc0_b + 1*C)      : NULL;
+    const int32_t *fc0_b_V = fc0_b ? (fc0_b + 2*C)      : NULL;
+
+    const int32_t *fc0_M_Q = fc0_M + 0*C;
+    const int32_t *fc0_M_K = fc0_M + 1*C;
+    const int32_t *fc0_M_V = fc0_M + 2*C;
+
+    const int32_t *fc0_R_Q = fc0_R + 0*C;
+    const int32_t *fc0_R_K = fc0_R + 1*C;
+    const int32_t *fc0_R_V = fc0_R + 2*C;
+
     for (int t = 0; t < T; ++t) {
-        mha__gather_token_ct(y, C, T, t, buf_tok); // buf_tok: [C]
-        // Project to 3*C
-        linear(/*x*/buf_tok, /*Cin*/C, /*w*/fc0_W, /*Cout*/3*C,
-               /*b*/fc0_b, /*M*/fc0_M, /*R*/fc0_R,
-               /*Y32*/Y32_fc,
-               /*y*/ &buf_qkv[(size_t)t * (3*C)]); // NOTE: linear writes [Cout] contiguous
+        // Gather normalized token y[:, t]
+        mha__gather_token_ct(y, C, T, t, buf_tok);
+
+        // Project to Q
+        linear(/*x*/buf_tok, /*Cin*/C, /*w*/fc0_W_Q, /*Cout*/C,
+            /*b*/fc0_b_Q, /*M*/fc0_M_Q, /*R*/fc0_R_Q,
+            /*Y32*/Y32_fc,
+            /*y*/buf_tok);
+        // Scatter into Q[:, t]
+        for (int c = 0; c < C; ++c) Q[c*T + t] = buf_tok[c];
+
+        // Project to K
+        linear(/*x*/buf_tok, /*Cin*/C, /*w*/fc0_W_K, /*Cout*/C,
+            /*b*/fc0_b_K, /*M*/fc0_M_K, /*R*/fc0_R_K,
+            /*Y32*/Y32_fc,
+            /*y*/buf_tok);
+        for (int c = 0; c < C; ++c) K[c*T + t] = buf_tok[c];
+
+        // Project to V
+        linear(/*x*/buf_tok, /*Cin*/C, /*w*/fc0_W_V, /*Cout*/C,
+            /*b*/fc0_b_V, /*M*/fc0_M_V, /*R*/fc0_R_V,
+            /*Y32*/Y32_fc,
+            /*y*/buf_tok);
+        for (int c = 0; c < C; ++c) V[c*T + t] = buf_tok[c];
     }
 
     // Rearrange buf_qkv from [T, 3*C] row-major to [3*C, T] channel-major.
@@ -206,7 +243,6 @@ static inline void mha_forward_i8_preln(
     // Do it in place with a tiny swap buffer (buf_tok) by blocks to keep it simple.
     // For robustness and clarity, we'll just re-pack into place head-by-head.
     // Create Q,K,V views on the final channel-major layout.
-    int8_t *Q, *K, *V;
     mha__split_qkv_views(buf_qkv, C, T, &Q, &K, &V);
 
     // Temporary staging area to transpose row-major [T, Cpart] into channel-major [Cpart, T]
